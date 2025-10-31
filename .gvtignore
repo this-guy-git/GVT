@@ -1,0 +1,6 @@
+# Sample GVT ignore file for the GVT
+# Ignore git because GVT shouldnt be tracking git
+.git/
+# Ignore built
+bin/
+*.exe
