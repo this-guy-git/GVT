@@ -35,3 +35,5 @@ go.work.sum
 
 # GVT directory until it can track itself
 .gvt/
+# It can track itself now :)
+# idk why i thought i shouldnt ignore it
