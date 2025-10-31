@@ -4,36 +4,60 @@ Copyright © 2025 this guy Labs <thisguy@thisguylabs.com>
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
 
-// logCmd represents the log command
+type LogEntry struct {
+	ID        string `json:"id"`
+	Message   string `json:"message"`
+	Timestamp string `json:"timestamp"`
+	User      string `json:"user"`
+}
+
 var logCmd = &cobra.Command{
 	Use:   "log",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Show commit history",
+	Long:  `Displays the commit history with commit IDs, authors, timestamps, and messages.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("log called")
+		historyFile := filepath.Join(".gvt", "history.json")
+		if _, err := os.Stat(historyFile); os.IsNotExist(err) {
+			fmt.Println("No commits yet.")
+			return
+		}
+
+		data, err := os.ReadFile(historyFile)
+		if err != nil {
+			fmt.Printf("Failed to read history: %v\n", err)
+			return
+		}
+
+		var rawHistory []map[string]string
+		json.Unmarshal(data, &rawHistory)
+
+		fmt.Println("GVT Commit History:")
+		fmt.Println("------------------")
+		for i := 0; i < len(rawHistory); i++ { // oldest first
+			entry := rawHistory[i]
+			ts := entry["timestamp"]
+			t, _ := time.Parse(time.RFC3339, ts)
+			author := entry["user"]
+			if author == "" {
+				author = "unknown"
+			}
+			fmt.Printf("commit %s\n", entry["id"])
+			fmt.Printf("Author: %s\n", author)
+			fmt.Printf("Date:   %s\n", t.Format("2006-01-02 15:04:05"))
+			fmt.Printf("Message:\n    %s\n\n", entry["message"])
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(logCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// logCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// logCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

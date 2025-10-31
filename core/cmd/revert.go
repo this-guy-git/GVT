@@ -4,36 +4,98 @@ Copyright © 2025 this guy Labs <thisguy@thisguylabs.com>
 package cmd
 
 import (
+	"compress/zlib"
+	"encoding/json"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
 
-// revertCmd represents the revert command
 var revertCmd = &cobra.Command{
-	Use:   "revert",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "revert [commit-id]",
+	Short: "Revert working directory to a previous commit",
+	Long:  `Replaces working directory files with the state from the specified commit. If no commit ID is given, reverts to the last commit.`,
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("revert called")
+		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
+			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			return
+		}
+
+		var targetCommit string
+		if len(args) == 1 {
+			targetCommit = args[0]
+		} else {
+			targetCommit = getLastCommitID()
+			if targetCommit == "" {
+				fmt.Println("No commits found to revert to.")
+				return
+			}
+		}
+
+		commitDir := filepath.Join(".gvt", "commits", targetCommit)
+		metaFile := filepath.Join(commitDir, "meta.json")
+		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
+			fmt.Printf("Commit %s does not exist.\n", targetCommit)
+			return
+		}
+
+		var meta CommitMeta
+		data, _ := os.ReadFile(metaFile)
+		json.Unmarshal(data, &meta)
+
+		for _, f := range meta.Files {
+			zPath := filepath.Join(commitDir, f.Path+".zlib")
+			targetPath := filepath.Join(".", f.Path)
+
+			srcFile, err := os.Open(zPath)
+			if err != nil {
+				fmt.Printf("Failed to read %s\n", zPath)
+				continue
+			}
+
+			r, err := zlib.NewReader(srcFile)
+			if err != nil {
+				fmt.Printf("Failed to decompress %s: %v\n", zPath, err)
+				srcFile.Close()
+				continue
+			}
+
+			os.MkdirAll(filepath.Dir(targetPath), 0755)
+			dstFile, _ := os.Create(targetPath)
+
+			buf := make([]byte, 32*1024) // 32 KB chunks
+			for {
+				n, err := r.Read(buf)
+				if n > 0 {
+					dstFile.Write(buf[:n])
+				}
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					fmt.Printf("Error decompressing %s: %v\n", f.Path, err)
+					break
+				}
+			}
+
+			r.Close()
+			srcFile.Close()
+			dstFile.Close()
+
+			fmt.Printf("Restored: %s\n", f.Path)
+		}
+
+		// Clear staging area
+		os.WriteFile(filepath.Join(".gvt", "stage.json"), []byte("[]"), 0644)
+
+		fmt.Printf("Revert to commit %s completed.\n", targetCommit)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(revertCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// revertCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// revertCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }

@@ -4,36 +4,108 @@ Copyright © 2025 this guy Labs <thisguy@thisguylabs.com>
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
 // cloneCmd represents the clone command
 var cloneCmd = &cobra.Command{
-	Use:   "clone",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "clone <source> [directory]",
+	Short: "Clone a GVT repository",
+	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("clone called")
+		source := args[0]
+		target := ""
+		if len(args) >= 2 {
+			target = args[1]
+		} else {
+			target = filepath.Base(source)
+		}
+
+		// Ensure target dir does not exist
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			fmt.Printf("Directory %s already exists.\n", target)
+			return
+		}
+
+		// Load ignore patterns
+		ignoreList := loadGvtIgnore(filepath.Join(source, ".gvtignore"))
+
+		// Collect all files to copy first (for progress bar)
+		var files []string
+		filepath.Walk(source, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(source, path)
+			for _, pattern := range ignoreList {
+				match, _ := filepath.Match(pattern, rel)
+				if match || strings.HasPrefix(rel, pattern) {
+					return nil
+				}
+			}
+			files = append(files, path)
+			return nil
+		})
+
+		bar := progressbar.NewOptions(len(files),
+			progressbar.OptionSetDescription("Cloning..."),
+			progressbar.OptionShowCount(),
+			progressbar.OptionShowIts(),
+			progressbar.OptionSetPredictTime(false),
+			progressbar.OptionSetWidth(40),
+			progressbar.OptionClearOnFinish(),
+		)
+
+		// Copy files with progress
+		for _, file := range files {
+			bar.Add(1)
+			rel, _ := filepath.Rel(source, file)
+			targetPath := filepath.Join(target, rel)
+
+			os.MkdirAll(filepath.Dir(targetPath), 0755)
+
+			data, err := os.ReadFile(file)
+			if err != nil {
+				continue
+			}
+			os.WriteFile(targetPath, data, 0644)
+		}
+
+		bar.Finish()
+		fmt.Printf("Cloned %s to %s\n", source, target)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(cloneCmd)
+}
 
-	// Here you will define your flags and configuration settings.
+func loadGvtIgnore(path string) []string {
+	var ignoreList []string
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// cloneCmd.PersistentFlags().String("foo", "", "A help for foo")
+	file, err := os.Open(path)
+	if err != nil {
+		return ignoreList // no .gvtignore, ignore nothing
+	}
+	defer file.Close()
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// cloneCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		ignoreList = append(ignoreList, line)
+	}
+	return ignoreList
 }

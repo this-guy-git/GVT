@@ -4,36 +4,107 @@ Copyright © 2025 this guy Labs <thisguy@thisguylabs.com>
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/this-guy-git/GVT/core/internal/utils"
 )
 
-// addCmd represents the add command
 var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "add [files or directories]",
+	Short: "Stage files for the next commit",
+	Long:  `Stages one or more files or directories to be committed in the next snapshot.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("add called")
+		if len(args) == 0 {
+			fmt.Println("No files specified. Usage: gvt add <file1> <file2> ... or gvt add .")
+			return
+		}
+
+		// Ensure repo exists
+		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
+			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			return
+		}
+
+		stageFile := filepath.Join(".gvt", "stage.json")
+
+		// Load existing staged files
+		var staged []string
+		if data, err := os.ReadFile(stageFile); err == nil {
+			json.Unmarshal(data, &staged)
+		}
+		stagedSet := make(map[string]bool)
+		for _, s := range staged {
+			stagedSet[s] = true
+		}
+
+		// Load ignore patterns
+		utils.LoadGvtIgnore()
+
+		var filesToAdd []string
+
+		for _, path := range args {
+			info, err := os.Stat(path)
+			if err != nil {
+				fmt.Printf("File not found: %s\n", path)
+				continue
+			}
+
+			if info.IsDir() {
+				filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+					if err != nil {
+						return nil
+					}
+					if info.IsDir() {
+						if info.Name() == ".gvt" {
+							return filepath.SkipDir
+						}
+						relDir, _ := filepath.Rel(".", p)
+						if utils.IsIgnored(relDir + "/") {
+							return filepath.SkipDir
+						}
+						return nil
+					}
+
+					relFile, _ := filepath.Rel(".", p)
+					if utils.IsIgnored(relFile) {
+						return nil
+					}
+
+					filesToAdd = append(filesToAdd, relFile)
+					return nil
+				})
+			} else {
+				relFile, _ := filepath.Rel(".", path)
+				if !utils.IsIgnored(relFile) {
+					filesToAdd = append(filesToAdd, relFile)
+				}
+			}
+		}
+
+		for _, rel := range filesToAdd {
+			if !stagedSet[rel] {
+				staged = append(staged, rel)
+				stagedSet[rel] = true
+				fmt.Printf("Added %s\n", rel)
+			}
+		}
+
+		data, _ := json.MarshalIndent(staged, "", "  ")
+		if err := os.WriteFile(stageFile, data, 0644); err != nil {
+			fmt.Printf("Error saving stage file: %v\n", err)
+			return
+		}
+
+		if len(filesToAdd) == 0 {
+			fmt.Println("No files were added.")
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(addCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// addCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// addCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
