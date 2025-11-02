@@ -1,0 +1,24 @@
+# Windows Makefile for GVT
+# Usage: make PLATFORM=linux|win in main GVT directory
+# Default PLATFORM is linux
+
+.PHONY: all clean
+
+GO = go
+OUT = bin\win
+
+all: clean build run
+
+build: core/ core/cmd/ core/internal core/main.go icons/logo.ico
+	if not exist $(OUT) mkdir $(OUT)
+	rsrc -ico icons\logo.ico -o core\rsrc.syso
+	$(GO) build -o $(OUT)\gvt.exe .\core
+	echo "Done! Binary in $(OUT)\gvt.exe"
+
+clean:
+	if not exist $(OUT) mkdir $(OUT)
+	for /d %%i in ("$(OUT)\*") do rd /s /q "%%i"
+	del /q "$(OUT)\*.*"
+
+run: $(OUT)\gvt.exe
+	.\$(OUT)\gvt.exe

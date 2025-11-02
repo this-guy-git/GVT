@@ -1,0 +1,21 @@
+# Linux Makefile for GVT
+# Usage: make PLATFORM=linux|win in main GVT directory
+# Default PLATFORM is linux
+
+.PHONY: all clean
+
+GO = go
+OUT = bin/linux
+
+all: clean build run
+
+build: core/ core/cmd/ core/internal core/main.go
+	mkdir -p $(OUT)
+	$(GO) build -o $(OUT)/gvt ./core
+	echo "Done! Binary in $(OUT)/gvt"
+
+clean:
+	rm -rf $(OUT)/*
+
+run: $(OUT)/gvt
+	./$(OUT)/gvt
