@@ -51,6 +51,12 @@ var commitCmd = &cobra.Command{
 			return
 		}
 
+		currentBranch := getCurrentBranch()
+		if currentBranch == "" {
+			fmt.Println("No branch found. (HEAD is detached or invalid)")
+			return
+		}
+
 		stageFile := filepath.Join(".gvt", "stage.json")
 		if _, err := os.Stat(stageFile); os.IsNotExist(err) {
 			fmt.Println("Nothing staged to commit.")
@@ -67,10 +73,10 @@ var commitCmd = &cobra.Command{
 			return
 		}
 
-		lastCommitID := getLastCommitID()
+		lastCommitID := getLastCommitID(currentBranch)
 		lastHashes := map[string]string{}
 		if lastCommitID != "" {
-			metaFile := filepath.Join(".gvt", "commits", lastCommitID, "meta.json")
+			metaFile := filepath.Join(".gvt", "commits", currentBranch, lastCommitID, "meta.json")
 			if data, err := os.ReadFile(metaFile); err == nil {
 				var meta CommitMeta
 				json.Unmarshal(data, &meta)
@@ -120,7 +126,7 @@ var commitCmd = &cobra.Command{
 		}
 
 		commitID := time.Now().Format("20060102-150405")
-		commitDir := filepath.Join(".gvt", "commits", commitID)
+		commitDir := filepath.Join(".gvt", "commits", currentBranch, commitID)
 		os.MkdirAll(commitDir, 0755)
 
 		historyFile := filepath.Join(".gvt", "history.json")
@@ -134,6 +140,7 @@ var commitCmd = &cobra.Command{
 
 		history = append(history, map[string]string{
 			"id":        commitID,
+			"branch":    currentBranch,
 			"message":   commitMsg,
 			"timestamp": time.Now().Format(time.RFC3339),
 			"user":      user,
@@ -154,14 +161,19 @@ var commitCmd = &cobra.Command{
 			Timestamp: time.Now().Format(time.RFC3339),
 			Files:     filesToCommit,
 			Parent:    lastCommitID,
+			Branch:    currentBranch,
 		}
 		data, _ = json.MarshalIndent(meta, "", "  ")
-
 		os.WriteFile(filepath.Join(commitDir, "meta.json"), data, 0644)
 
+		// Update branch ref
+		refPath := filepath.Join(".gvt", "refs", "heads", currentBranch)
+		os.WriteFile(refPath, []byte(commitID), 0644)
+
+		// Clear stage
 		os.WriteFile(stageFile, []byte("[]"), 0644)
 
-		fmt.Printf("Committed %d file(s) as %s\nMessage: %s\n", len(filesToCommit), commitID, commitMsg)
+		fmt.Printf("[%s] committed %d file(s) as %s\nMessage: %s\n", currentBranch, len(filesToCommit), commitID, commitMsg)
 	},
 }
 
@@ -171,6 +183,7 @@ type CommitMeta struct {
 	Timestamp string     `json:"timestamp"`
 	Files     []FileMeta `json:"files"`
 	Parent    string     `json:"parent,omitempty"`
+	Branch    string     `json:"branch"`
 }
 
 type FileMeta struct {
@@ -179,8 +192,8 @@ type FileMeta struct {
 	Data []byte `json:"-"`
 }
 
-func getLastCommitID() string {
-	commitsDir := filepath.Join(".gvt", "commits")
+func getLastCommitID(branch string) string {
+	commitsDir := filepath.Join(".gvt", "commits", branch)
 	entries, err := os.ReadDir(commitsDir)
 	if err != nil || len(entries) == 0 {
 		return ""
@@ -222,8 +235,6 @@ func prepareFile(path string, lastHashes map[string]string) FileMeta {
 	w.Close()
 
 	hashStr := hex.EncodeToString(h.Sum(nil))
-
-	// Convert to relative path for portability
 	relPath, _ := filepath.Rel(".", path)
 	relPath = filepath.ToSlash(relPath)
 
@@ -239,7 +250,6 @@ func prepareFile(path string, lastHashes map[string]string) FileMeta {
 }
 
 func shouldSkip(path string) bool {
-	// skip the .gvt folder entirely
 	return strings.Contains(path, string(os.PathSeparator)+".gvt")
 }
 

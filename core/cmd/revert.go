@@ -47,14 +47,15 @@ var revertCmd = &cobra.Command{
 		if len(args) == 1 {
 			targetCommit = args[0]
 		} else {
-			targetCommit = getLastCommitID()
+			currentBranch := getCurrentBranch()
+			targetCommit = getLastCommitID(currentBranch)
 			if targetCommit == "" {
 				fmt.Println("No commits found to revert to.")
 				return
 			}
 		}
 
-		commitDir := filepath.Join(".gvt", "commits", targetCommit)
+		commitDir := filepath.Join(".gvt", "commits", getCurrentBranch(), targetCommit)
 		metaFile := filepath.Join(commitDir, "meta.json")
 		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
 			fmt.Printf("Commit %s does not exist.\n", targetCommit)

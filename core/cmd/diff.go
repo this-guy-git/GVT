@@ -52,8 +52,9 @@ var diffCmd = &cobra.Command{
 			return
 		}
 
-		oldCommitDir := filepath.Join(".gvt", "commits", commits[1])
-		newCommitDir := filepath.Join(".gvt", "commits", commits[0])
+		currentBranch := getCurrentBranch()
+		oldCommitDir := filepath.Join(".gvt", "commits", commits[1], currentBranch)
+		newCommitDir := filepath.Join(".gvt", "commits", commits[0], currentBranch)
 
 		oldFiles := loadCommitFiles(oldCommitDir)
 		newFiles := loadCommitFiles(newCommitDir)
@@ -94,7 +95,7 @@ var diffCmd = &cobra.Command{
 }
 
 func getLastTwoCommits() []string {
-	commitsDir := filepath.Join(".gvt", "commits")
+	commitsDir := filepath.Join(".gvt", "commits", getCurrentBranch())
 	entries, err := os.ReadDir(commitsDir)
 	if err != nil || len(entries) == 0 {
 		return []string{}

@@ -44,13 +44,14 @@ var restoreCmd = &cobra.Command{
 		}
 
 		fileToRestore := args[0]
-		lastCommit := getLastCommitID()
+		currentBranch := getCurrentBranch()
+		lastCommit := getLastCommitID(currentBranch)
 		if lastCommit == "" {
 			fmt.Println("No commits found to restore from.")
 			return
 		}
 
-		metaFile := filepath.Join(".gvt", "commits", lastCommit, "meta.json")
+		metaFile := filepath.Join(".gvt", "commits", currentBranch, lastCommit, "meta.json")
 		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
 			fmt.Println("Last commit metadata not found.")
 			return
@@ -73,7 +74,7 @@ var restoreCmd = &cobra.Command{
 			return
 		}
 
-		zPath := filepath.Join(".gvt", "commits", lastCommit, targetFile.Path+".zlib")
+		zPath := filepath.Join(".gvt", "commits", currentBranch, lastCommit, targetFile.Path+".zlib")
 		srcFile, err := os.Open(zPath)
 		if err != nil {
 			fmt.Printf("Failed to open %s: %v\n", zPath, err)

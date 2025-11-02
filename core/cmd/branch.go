@@ -23,35 +23,102 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// branchCmd represents the branch command
 var branchCmd = &cobra.Command{
-	Use:   "branch",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "branch [name]",
+	Short: "List or create branches",
+	Long: `Manage branches in your GVT repository.
+Running without arguments lists all branches.
+Running with a name creates a new branch at the current commit.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("branch called")
+		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
+			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			return
+		}
+
+		refsDir := filepath.Join(".gvt", "refs", "heads")
+		os.MkdirAll(refsDir, 0755)
+
+		currentBranch := getCurrentBranch()
+		headCommit := getBranchHead(currentBranch)
+
+		// If no args → list branches
+		if len(args) == 0 {
+			files, err := os.ReadDir(refsDir)
+			if err != nil {
+				fmt.Println("Error reading branches:", err)
+				return
+			}
+
+			if len(files) == 0 {
+				fmt.Println("No branches found.")
+				return
+			}
+
+			fmt.Println("Branches:")
+			for _, f := range files {
+				name := f.Name()
+				prefix := "  "
+				if name == currentBranch {
+					prefix = "* "
+				}
+				fmt.Printf("%s%s\n", prefix, name)
+			}
+			return
+		}
+
+		// Creating a branch
+		newBranch := args[0]
+		refPath := filepath.Join(refsDir, newBranch)
+
+		if _, err := os.Stat(refPath); err == nil {
+			fmt.Printf("Branch '%s' already exists.\n", newBranch)
+			return
+		}
+
+		if headCommit == "" {
+			fmt.Println("No commits yet to branch from.")
+			return
+		}
+
+		err := os.WriteFile(refPath, []byte(headCommit), 0644)
+		if err != nil {
+			fmt.Println("Failed to create branch:", err)
+			return
+		}
+
+		fmt.Printf("Created branch '%s' at commit %s\n", newBranch, headCommit)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(branchCmd)
+}
 
-	// Here you will define your flags and configuration settings.
+// getCurrentBranch and getBranchHead reused from commit.go
+func getCurrentBranch() string {
+	data, err := os.ReadFile(".gvt/HEAD")
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(data))
+	if strings.HasPrefix(line, "ref: ") {
+		return filepath.Base(line[5:])
+	}
+	return ""
+}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// branchCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// branchCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+func getBranchHead(branch string) string {
+	refPath := filepath.Join(".gvt", "refs", "heads", branch)
+	data, err := os.ReadFile(refPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

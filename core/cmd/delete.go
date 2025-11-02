@@ -46,7 +46,8 @@ var deleteCmd = &cobra.Command{
 			return
 		}
 
-		commitsDir := filepath.Join(".gvt", "commits")
+		currentBranch := getCurrentBranch()
+		commitsDir := filepath.Join(".gvt", "commits", currentBranch)
 		historyFile := filepath.Join(".gvt", "history.json")
 
 		if deleteAll {
@@ -77,7 +78,7 @@ var deleteCmd = &cobra.Command{
 			return
 		}
 
-		lastCommit := getLastCommitID()
+		lastCommit := getLastCommitID(currentBranch)
 		if commitID == lastCommit && !forceDelete {
 			fmt.Println("Cannot delete the latest commit without --force.")
 			return
