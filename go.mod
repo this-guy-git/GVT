@@ -5,6 +5,7 @@ go 1.24.0
 require github.com/spf13/cobra v1.10.1 // direct
 
 require (
+	github.com/akavel/rsrc v0.10.2 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
