@@ -11,8 +11,11 @@ all: clean build run
 
 build: core/ core/cmd/ core/internal core/main.go
 	mkdir -p $(OUT)
+	mkdir -p out
 	$(GO) build -o $(OUT)/gvt ./core
 	echo "Done! Binary in $(OUT)/gvt"
+	tar -czvf gvt-linux.tar.gz $(OUT)/gvt LICENSE README.md
+	mv gvt-linux.tar.gz out/gvt-linux.tar.gz
 
 clean:
 	rm -rf $(OUT)/*
