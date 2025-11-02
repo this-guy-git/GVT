@@ -3,4 +3,5 @@
 .git/
 # Ignore built
 bin/
+out/
 *.exe
