@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 	"github.com/this-guy-git/GVT/core/internal/utils"
 )
@@ -47,29 +48,28 @@ var commitCmd = &cobra.Command{
 	Long:  `Saves the currently staged files as a new commit. If no message is given, one will be generated automatically based on the changes.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
-			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			fmt.Println(Red + "Not a GVT repository (no .gvt directory found)" + Reset)
 			return
 		}
 
 		currentBranch := getCurrentBranch()
 		if currentBranch == "" {
-			fmt.Println("No branch found. (HEAD is detached or invalid)")
+			fmt.Println(Red + "No branch found. (HEAD is detached or invalid)" + Reset)
 			return
 		}
 
 		stageFile := filepath.Join(".gvt", "stage.json")
 		if _, err := os.Stat(stageFile); os.IsNotExist(err) {
-			fmt.Println("Nothing staged to commit.")
+			fmt.Println(Red + "Nothing staged to commit." + Reset)
 			return
 		}
 
-		// Load staged files
 		var staged []string
 		if data, err := os.ReadFile(stageFile); err == nil {
 			json.Unmarshal(data, &staged)
 		}
 		if len(staged) == 0 {
-			fmt.Println("Nothing staged to commit.")
+			fmt.Println(Red + "Nothing staged to commit." + Reset)
 			return
 		}
 
@@ -113,7 +113,7 @@ var commitCmd = &cobra.Command{
 		}
 
 		if len(filesToCommit) == 0 {
-			fmt.Println("No changes to commit.")
+			fmt.Println(Red + "No changes to commit." + Reset)
 			return
 		}
 
@@ -130,14 +130,12 @@ var commitCmd = &cobra.Command{
 		os.MkdirAll(commitDir, 0755)
 
 		historyFile := filepath.Join(".gvt", "history.json")
-
 		var history []map[string]string
 		if data, err := os.ReadFile(historyFile); err == nil {
 			json.Unmarshal(data, &history)
 		}
 
 		user := utils.GetCommitUser(".")
-
 		history = append(history, map[string]string{
 			"id":        commitID,
 			"branch":    currentBranch,
@@ -145,14 +143,25 @@ var commitCmd = &cobra.Command{
 			"timestamp": time.Now().Format(time.RFC3339),
 			"user":      user,
 		})
-
 		data, _ := json.MarshalIndent(history, "", "  ")
 		os.WriteFile(historyFile, data, 0644)
+
+		fmt.Printf(Cyan+"Committing %d file(s)...\n"+Reset, len(filesToCommit))
+		bar := progressbar.NewOptions(len(filesToCommit),
+			progressbar.OptionSetDescription("Files:"),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "=",
+				SaucerPadding: " ",
+				BarStart:      "[",
+				BarEnd:        "]",
+			}),
+		)
 
 		for _, f := range filesToCommit {
 			dest := filepath.Join(commitDir, f.Path+".zlib")
 			os.MkdirAll(filepath.Dir(dest), 0755)
 			os.WriteFile(dest, f.Data, 0644)
+			bar.Add(1)
 		}
 
 		meta := CommitMeta{
@@ -166,14 +175,12 @@ var commitCmd = &cobra.Command{
 		data, _ = json.MarshalIndent(meta, "", "  ")
 		os.WriteFile(filepath.Join(commitDir, "meta.json"), data, 0644)
 
-		// Update branch ref
 		refPath := filepath.Join(".gvt", "refs", "heads", currentBranch)
 		os.WriteFile(refPath, []byte(commitID), 0644)
 
-		// Clear stage
 		os.WriteFile(stageFile, []byte("[]"), 0644)
 
-		fmt.Printf("[%s] committed %d file(s) as %s\nMessage: %s\n", currentBranch, len(filesToCommit), commitID, commitMsg)
+		fmt.Printf(Green+"[%s] committed %d file(s) as %s\nMessage: %s\n"+Reset, currentBranch, len(filesToCommit), commitID, commitMsg)
 	},
 }
 

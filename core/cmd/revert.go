@@ -29,7 +29,15 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
+)
+
+const (
+	Green = "\033[32m"
+	Red   = "\033[31m"
+	Cyan  = "\033[36m"
+	Reset = "\033[0m"
 )
 
 var revertCmd = &cobra.Command{
@@ -39,26 +47,26 @@ var revertCmd = &cobra.Command{
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
-			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			fmt.Println(Red + "Not a GVT repository (no .gvt directory found)" + Reset)
 			return
 		}
 
+		currentBranch := getCurrentBranch()
 		var targetCommit string
 		if len(args) == 1 {
 			targetCommit = args[0]
 		} else {
-			currentBranch := getCurrentBranch()
 			targetCommit = getLastCommitID(currentBranch)
 			if targetCommit == "" {
-				fmt.Println("No commits found to revert to.")
+				fmt.Println(Red + "No commits found to revert to." + Reset)
 				return
 			}
 		}
 
-		commitDir := filepath.Join(".gvt", "commits", getCurrentBranch(), targetCommit)
+		commitDir := filepath.Join(".gvt", "commits", currentBranch, targetCommit)
 		metaFile := filepath.Join(commitDir, "meta.json")
 		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
-			fmt.Printf("Commit %s does not exist.\n", targetCommit)
+			fmt.Printf(Red+"Commit %s does not exist.\n"+Reset, targetCommit)
 			return
 		}
 
@@ -66,27 +74,40 @@ var revertCmd = &cobra.Command{
 		data, _ := os.ReadFile(metaFile)
 		json.Unmarshal(data, &meta)
 
+		fmt.Printf(Cyan+"Reverting to commit %s...\n"+Reset, targetCommit)
+		bar := progressbar.NewOptions(len(meta.Files),
+			progressbar.OptionSetDescription("Restoring files:"),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "=",
+				SaucerPadding: " ",
+				BarStart:      "[",
+				BarEnd:        "]",
+			}),
+		)
+
 		for _, f := range meta.Files {
 			zPath := filepath.Join(commitDir, f.Path+".zlib")
 			targetPath := filepath.Join(".", f.Path)
 
 			srcFile, err := os.Open(zPath)
 			if err != nil {
-				fmt.Printf("Failed to read %s\n", zPath)
+				fmt.Printf(Red+"Failed to read %s\n"+Reset, zPath)
+				bar.Add(1)
 				continue
 			}
 
 			r, err := zlib.NewReader(srcFile)
 			if err != nil {
-				fmt.Printf("Failed to decompress %s: %v\n", zPath, err)
+				fmt.Printf(Red+"Failed to decompress %s: %v\n"+Reset, zPath, err)
 				srcFile.Close()
+				bar.Add(1)
 				continue
 			}
 
 			os.MkdirAll(filepath.Dir(targetPath), 0755)
 			dstFile, _ := os.Create(targetPath)
 
-			buf := make([]byte, 32*1024) // 32 KB chunks
+			buf := make([]byte, 32*1024)
 			for {
 				n, err := r.Read(buf)
 				if n > 0 {
@@ -96,7 +117,7 @@ var revertCmd = &cobra.Command{
 					if err == io.EOF {
 						break
 					}
-					fmt.Printf("Error decompressing %s: %v\n", f.Path, err)
+					fmt.Printf(Red+"Error decompressing %s: %v\n"+Reset, f.Path, err)
 					break
 				}
 			}
@@ -105,13 +126,11 @@ var revertCmd = &cobra.Command{
 			srcFile.Close()
 			dstFile.Close()
 
-			fmt.Printf("Restored: %s\n", f.Path)
+			bar.Add(1)
 		}
 
-		// Clear staging area
 		os.WriteFile(filepath.Join(".gvt", "stage.json"), []byte("[]"), 0644)
-
-		fmt.Printf("Revert to commit %s completed.\n", targetCommit)
+		fmt.Printf(Green+"\nRevert to commit %s completed.\n"+Reset, targetCommit)
 	},
 }
 

@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ var restoreCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if _, err := os.Stat(".gvt"); os.IsNotExist(err) {
-			fmt.Println("Not a GVT repository (no .gvt directory found)")
+			fmt.Println(Red + "Not a GVT repository (no .gvt directory found)" + Reset)
 			return
 		}
 
@@ -47,13 +48,13 @@ var restoreCmd = &cobra.Command{
 		currentBranch := getCurrentBranch()
 		lastCommit := getLastCommitID(currentBranch)
 		if lastCommit == "" {
-			fmt.Println("No commits found to restore from.")
+			fmt.Println(Red + "No commits found to restore from." + Reset)
 			return
 		}
 
 		metaFile := filepath.Join(".gvt", "commits", currentBranch, lastCommit, "meta.json")
 		if _, err := os.Stat(metaFile); os.IsNotExist(err) {
-			fmt.Println("Last commit metadata not found.")
+			fmt.Println(Red + "Last commit metadata not found." + Reset)
 			return
 		}
 
@@ -70,21 +71,21 @@ var restoreCmd = &cobra.Command{
 		}
 
 		if targetFile == nil {
-			fmt.Printf("File %s is not tracked in the last commit.\n", fileToRestore)
+			fmt.Printf(Red+"File %s is not tracked in the last commit.\n"+Reset, fileToRestore)
 			return
 		}
 
 		zPath := filepath.Join(".gvt", "commits", currentBranch, lastCommit, targetFile.Path+".zlib")
 		srcFile, err := os.Open(zPath)
 		if err != nil {
-			fmt.Printf("Failed to open %s: %v\n", zPath, err)
+			fmt.Printf(Red+"Failed to open %s: %v\n"+Reset, zPath, err)
 			return
 		}
 		defer srcFile.Close()
 
 		r, err := zlib.NewReader(srcFile)
 		if err != nil {
-			fmt.Printf("Failed to decompress %s: %v\n", zPath, err)
+			fmt.Printf(Red+"Failed to decompress %s: %v\n"+Reset, zPath, err)
 			return
 		}
 		defer r.Close()
@@ -93,22 +94,36 @@ var restoreCmd = &cobra.Command{
 		dstFile, _ := os.Create(targetFile.Path)
 		defer dstFile.Close()
 
+		fmt.Printf(Cyan+"Restoring %s...\n"+Reset, targetFile.Path)
+		bar := progressbar.NewOptions(100,
+			progressbar.OptionSetDescription("Restoring file:"),
+			progressbar.OptionSetTheme(progressbar.Theme{
+				Saucer:        "=",
+				SaucerPadding: " ",
+				BarStart:      "[",
+				BarEnd:        "]",
+			}),
+		)
+
 		buf := make([]byte, 32*1024) // 32 KB chunks
 		for {
 			n, err := r.Read(buf)
 			if n > 0 {
 				dstFile.Write(buf[:n])
+				// update progress (approximate)
+				bar.Add(n)
 			}
 			if err != nil {
 				if err == io.EOF {
 					break
 				}
-				fmt.Printf("Error restoring %s: %v\n", targetFile.Path, err)
+				fmt.Printf(Red+"Error restoring %s: %v\n"+Reset, targetFile.Path, err)
 				return
 			}
 		}
 
-		fmt.Printf("Restored: %s to last committed state.\n", targetFile.Path)
+		bar.Finish()
+		fmt.Printf(Green+"Restored: %s to last committed state.\n"+Reset, targetFile.Path)
 	},
 }
 

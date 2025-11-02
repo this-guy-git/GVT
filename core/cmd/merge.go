@@ -22,36 +22,111 @@ Do not remove or modify this notice.
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/this-guy-git/GVT/core/internal/storage"
 )
 
-// mergeCmd represents the merge command
 var mergeCmd = &cobra.Command{
-	Use:   "merge",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Use:   "merge <branch>",
+	Short: "Merge another branch into the current branch",
+	Long:  `Merges the specified branch into the current branch. Only fast-forward merges are supported.`,
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("merge called")
+		targetBranch := args[0]
+		currentBranch := GetCurrentBranch()
+
+		if targetBranch == currentBranch {
+			fmt.Println("Cannot merge branch into itself.")
+			return
+		}
+
+		// Check branch exists
+		targetRef := filepath.Join(".gvt", "refs", "heads", targetBranch)
+		if _, err := os.Stat(targetRef); os.IsNotExist(err) {
+			fmt.Printf("Branch '%s' does not exist.\n", targetBranch)
+			return
+		}
+
+		// Get last commits for both branches
+		currentCommit := getLastCommitID(currentBranch)
+		targetCommit := getLastCommitID(targetBranch)
+
+		if targetCommit == "" {
+			fmt.Printf("Branch '%s' has no commits.\n", targetBranch)
+			return
+		}
+
+		if currentCommit == "" {
+			// No commits on current branch, fast-forward
+			fmt.Printf("Current branch '%s' has no commits. Fast-forwarding.\n", currentBranch)
+			restoreBranchCommit(targetBranch, targetCommit)
+			return
+		}
+
+		if currentCommit == targetCommit {
+			fmt.Println("Branches are already identical.")
+			return
+		}
+
+		// Simple fast-forward check: if targetCommit contains all current branch commits
+		currentMeta := loadCommitMeta(currentBranch, currentCommit)
+		targetMeta := loadCommitMeta(targetBranch, targetCommit)
+
+		conflicts := []string{}
+		for _, f := range targetMeta.Files {
+			for _, cf := range currentMeta.Files {
+				if f.Path == cf.Path && f.Hash != cf.Hash {
+					conflicts = append(conflicts, f.Path)
+				}
+			}
+		}
+
+		if len(conflicts) > 0 {
+			fmt.Println("Merge aborted due to conflicts in files:")
+			for _, c := range conflicts {
+				fmt.Println(" -", c)
+			}
+			fmt.Println("Resolve conflicts manually and commit.")
+			return
+		}
+
+		// No conflicts, copy files from target branch to current branch
+		restoreBranchCommit(targetBranch, targetCommit)
+		fmt.Printf("Merged branch '%s' into '%s'.\n", targetBranch, currentBranch)
 	},
+}
+
+// restoreBranchCommit copies commit files to current branch working dir
+func restoreBranchCommit(branch, commitID string) {
+	commitDir := filepath.Join(".gvt", "commits", branch, commitID)
+	meta := loadCommitMeta(branch, commitID)
+
+	for _, f := range meta.Files {
+		src := filepath.Join(commitDir, f.Path+".zlib")
+		dst := f.Path
+		os.MkdirAll(filepath.Dir(dst), 0755)
+
+		storage.DecompressToFile(src, dst)
+	}
+}
+
+// loadCommitMeta loads CommitMeta from branch/commit
+func loadCommitMeta(branch, commitID string) CommitMeta {
+	metaFile := filepath.Join(".gvt", "commits", branch, commitID, "meta.json")
+	data, err := os.ReadFile(metaFile)
+	if err != nil {
+		return CommitMeta{}
+	}
+	var meta CommitMeta
+	json.Unmarshal(data, &meta)
+	return meta
 }
 
 func init() {
 	rootCmd.AddCommand(mergeCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// mergeCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// mergeCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
